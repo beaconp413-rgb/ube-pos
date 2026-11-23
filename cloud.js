@@ -109,48 +109,85 @@ window.syncNow = async () => { await push(); await pull(); toast(CL.err ? 'Sync 
 
 /* ---------- login gate ---------- */
 let gateEmail = '';
-function showGate(step) {
+function showGate(step, msg) {
   let g = $('#gate');
   if (!g) { g = document.createElement('div'); g.id = 'gate'; document.body.appendChild(g); }
-  g.innerHTML = `<div class="gate-box"><img src="icons/icon.svg" alt="" style="width:64px;height:64px;border-radius:16px"><h2 style="margin:12px 0 4px">Ube POS</h2>
-  ${step === 'code' ? `<div style="font-size:40px;margin:6px 0">📩</div><p>We sent an email to <b>${esc(gateEmail)}</b>.</p>
-    <p class="small"><b>Open it on this phone and tap “Log In”.</b> Ube POS opens and signs you in.</p>
+  const head = `<img src="icons/icon.svg" alt="" style="width:64px;height:64px;border-radius:16px"><h2 style="margin:12px 0 4px">Ube POS</h2>`;
+  const email = `<label class="f">Email<input id="gEmail" type="email" inputmode="email" autocomplete="email" value="${esc(gateEmail)}" placeholder="you@gmail.com"></label>`;
+  let body;
+  if (step === 'link') body = `<div style="font-size:40px;margin:6px 0">📩</div><p>We sent an email to <b>${esc(gateEmail)}</b>.</p>
+    <p class="small"><b>Open it on this phone and tap the link.</b> Ube POS opens and signs you in.</p>
     <p class="mut small">No email after 2 minutes? Check Spam / Promotions.</p>
     <button class="btn block" id="gBtn" onclick="gateCheck()">I tapped the link</button>
-    <button class="btn ghost block" style="margin-top:8px" onclick="showGate()">Use a different email</button>`
-  : `<p class="mut small">Sign in with your email — no password. Your team sees the same stock and sales on every phone.</p>
-    <label class="f">Email<input id="gEmail" type="email" inputmode="email" autocomplete="email" value="${esc(gateEmail)}" placeholder="you@gmail.com"></label>
-    <button class="btn block" id="gBtn" onclick="gateSend()">Email me a login link</button>`}
-  <div id="gErr" class="small bad" style="margin-top:8px"></div>
-  ${step === 'code' ? '' : `<button class="btn ghost block" style="margin-top:18px;border:0" onclick="useLocalOnly()">Use without an account (this phone only)</button>`}</div>`;
+    <button class="btn ghost block" style="margin-top:8px" onclick="showGate()">Back to sign in</button>`;
+  else if (step === 'signup') body = `<p class="mut small">Create your account. You'll get <b>one</b> confirmation email — after that you sign in with your password.</p>${email}
+    <label class="f">Choose a password (at least 6 characters)<input id="gPass" type="password" autocomplete="new-password"></label>
+    <button class="btn block" id="gBtn" onclick="gateSignUp()">Create account</button>
+    <button class="btn ghost block" style="margin-top:8px" onclick="showGate()">I already have an account</button>`;
+  else if (step === 'forgot') body = `<p class="mut small">We'll email you a one-time sign-in link. After signing in, set a new password in More → Team & account.</p>${email}
+    <button class="btn block" id="gBtn" onclick="gateSend()">Email me a sign-in link</button>
+    <button class="btn ghost block" style="margin-top:8px" onclick="showGate()">Back to sign in</button>`;
+  else body = `<p class="mut small">Sign in to see your team's stock and sales on every phone.</p>${email}
+    <label class="f">Password<input id="gPass" type="password" autocomplete="current-password" onkeydown="if(event.key==='Enter')gateSignIn()"></label>
+    <button class="btn block" id="gBtn" onclick="gateSignIn()">Sign in</button>
+    <button class="btn sec block" style="margin-top:8px" onclick="gateKeep();showGate('signup')">New here? Create account</button>
+    <button class="btn ghost block" style="margin-top:8px;border:0" onclick="gateKeep();showGate('forgot')">Forgot password / no password yet</button>`;
+  g.innerHTML = `<div class="gate-box">${head}${body}<div id="gErr" class="small bad" style="margin-top:8px">${msg ? esc(msg) : ''}</div>
+    ${step ? '' : `<button class="btn ghost block" style="margin-top:14px;border:0;font-size:13px" onclick="useLocalOnly()">Use without an account (this phone only)</button>`}</div>`;
   g.style.display = 'flex';
-  setTimeout(() => ($('#gCode') || $('#gEmail'))?.focus(), 50);
+  setTimeout(() => ($('#gEmail') && !$('#gEmail').value ? $('#gEmail') : $('#gPass'))?.focus(), 50);
 }
 const hideGate = () => { const g = $('#gate'); if (g) g.style.display = 'none'; };
 const gateBusy = (on, label) => { const b = $('#gBtn'); if (b) { b.disabled = on; if (label) b.textContent = label; } };
-window.gateSend = async () => {
-  gateEmail = $('#gEmail').value.trim().toLowerCase();
-  if (!/^\S+@\S+\.\S+$/.test(gateEmail)) { $('#gErr').textContent = 'Enter a valid email.'; return; }
-  if (!navigator.onLine) { $('#gErr').textContent = 'You are offline. Connect to the internet to sign in.'; return; }
-  gateBusy(true, 'Sending…');
-  const { error } = await CL.sb.auth.signInWithOtp({ email: gateEmail, options: { shouldCreateUser: true, emailRedirectTo: CFG.appUrl || location.origin + location.pathname } });
-  if (error) { gateBusy(false, 'Email me a login link'); $('#gErr').textContent = /rate|seconds/i.test(error.message) ? 'Too many codes requested. Wait a minute, then try again.' : error.message; return; }
-  showGate('code');
+window.gateKeep = () => { if ($('#gEmail')) gateEmail = $('#gEmail').value.trim().toLowerCase(); };
+const redirectTo = () => CFG.appUrl || location.origin + location.pathname;
+function authMsg(error) {
+  const m = error?.message || String(error);
+  if (/rate limit|too many|seconds/i.test(m)) return 'Email limit reached — the free plan sends only a few emails per hour. Try again in about an hour, or sign in with your password.';
+  if (/invalid login/i.test(m)) return 'Wrong email or password. No password yet? Tap “Forgot password / no password yet”.';
+  if (/not confirmed/i.test(m)) return 'Please confirm your email first: open the email from Supabase and tap the link, then sign in.';
+  if (/already registered|already exists/i.test(m)) return 'This email already has an account. Sign in instead, or use “Forgot password”.';
+  if (/password/i.test(m) && /6|short|weak/i.test(m)) return 'Password must be at least 6 characters.';
+  if (/fetch|network/i.test(m)) return 'No internet connection. Connect and try again.';
+  return m;
+}
+function gateInputs(needPass) {
+  gateKeep();
+  if (!/^\S+@\S+\.\S+$/.test(gateEmail)) { $('#gErr').textContent = 'Enter a valid email.'; return null; }
+  const pass = $('#gPass')?.value || '';
+  if (needPass && pass.length < 6) { $('#gErr').textContent = 'Password must be at least 6 characters.'; return null; }
+  if (!navigator.onLine) { $('#gErr').textContent = 'You are offline. Connect to the internet to sign in.'; return null; }
+  return { email: gateEmail, pass };
+}
+window.gateSignIn = async () => {
+  const v = gateInputs(true); if (!v) return;
+  gateBusy(true, 'Signing in…');
+  const { data, error } = await CL.sb.auth.signInWithPassword({ email: v.email, password: v.pass });
+  if (error) { gateBusy(false, 'Sign in'); $('#gErr').textContent = authMsg(error); return; }
+  localStorage.removeItem(LOCAL_ONLY); await afterLogin(data.user);
 };
-window.gateVerify = async () => {
-  const token = $('#gCode').value.replace(/\D/g, '');
-  if (token.length < 6) { $('#gErr').textContent = 'Enter the code from the email.'; return; }
-  gateBusy(true, 'Checking…');
-  const { data, error } = await CL.sb.auth.verifyOtp({ email: gateEmail, token, type: 'email' });
-  if (error) { gateBusy(false, 'Sign in'); $('#gErr').textContent = /expired|invalid/i.test(error.message) ? 'Wrong or expired code. Check the latest email, or go back and send a new one.' : error.message; return; }
-  localStorage.removeItem(LOCAL_ONLY);
-  await afterLogin(data.user);
+window.gateSignUp = async () => {
+  const v = gateInputs(true); if (!v) return;
+  gateBusy(true, 'Creating…');
+  const { data, error } = await CL.sb.auth.signUp({ email: v.email, password: v.pass, options: { emailRedirectTo: redirectTo() } });
+  if (error) { gateBusy(false, 'Create account'); $('#gErr').textContent = authMsg(error); return; }
+  if (data.session) { localStorage.removeItem(LOCAL_ONLY); await afterLogin(data.user); return; }
+  if (data.user && !(data.user.identities || []).length) { gateBusy(false, 'Create account'); $('#gErr').textContent = authMsg('already registered'); return; }
+  showGate('link');
+  $('#gate .gate-box p').innerHTML = `Almost done! We sent a confirmation email to <b>${esc(v.email)}</b>.`;
+};
+window.gateSend = async () => {
+  const v = gateInputs(false); if (!v) return;
+  gateBusy(true, 'Sending…');
+  const { error } = await CL.sb.auth.signInWithOtp({ email: v.email, options: { shouldCreateUser: true, emailRedirectTo: redirectTo() } });
+  if (error) { gateBusy(false, 'Email me a sign-in link'); $('#gErr').textContent = authMsg(error); return; }
+  showGate('link');
 };
 window.gateCheck = async () => {
   gateBusy(true, 'Checking…');
   const s = (await CL.sb.auth.getSession()).data.session;
   if (s) { localStorage.removeItem(LOCAL_ONLY); await afterLogin(s.user); return; }
-  gateBusy(false, 'I tapped the link'); $('#gErr').textContent = 'Not signed in yet. Tap “Log In” in the newest email, then come back here.';
+  gateBusy(false, 'I tapped the link'); $('#gErr').textContent = 'Not signed in yet. Tap the link in the newest email, then come back here.';
 };
 window.useLocalOnly = () => { localStorage.setItem(LOCAL_ONLY, '1'); hideGate(); render(); };
 
@@ -247,6 +284,8 @@ function vTeam(v) {
   v.innerHTML = `<h2>Team & account</h2>
   <div class="card"><div class="row sb"><div><b>${esc(CL.team.name)}</b><div class="small mut">${esc(CL.user.email)} · ${own ? 'Owner' : 'Member'}</div></div><button class="btn ghost sm" onclick="signOut()">Sign out</button></div>
     <label class="f" style="margin-top:10px">Your name on sales<div class="row"><input id="myName" class="grow" value="${esc(CL.member?.name || '')}" style="margin:0"><button class="btn sm" onclick="saveMyName()">Save</button></div></label></div>
+  <div class="card"><b>Password</b><div class="small mut" style="margin:2px 0 8px">Sign in with email + password — no email needed each time.</div>
+    <div class="row"><input id="newPass" class="grow" type="password" autocomplete="new-password" placeholder="new password (6+ characters)" style="padding:10px;border:1px solid var(--line);border-radius:10px"><button class="btn sm" onclick="setPassword()">Set</button></div></div>
   <div class="card" id="syncCard"></div>
   <div class="card"><b>Team (${CL.members.length})</b><div class="list">${CL.members.map(m => `<div class="it"><div class="grow"><b>${esc(m.name || m.email.split('@')[0])}</b> ${m.role === 'owner' ? '<span class="pill">owner</span>' : ''}${m.user_id === CL.user.id ? ' <span class="pill ok">you</span>' : ''}
       <div class="small mut">${esc(m.email)}</div></div>${own && m.role !== 'owner' ? `<button class="btn danger sm" onclick="removeMember('${m.user_id}')">Remove</button>` : ''}</div>`).join('')}</div>
@@ -264,6 +303,12 @@ function renderTeamStatus() {
     : CL.err ? 'Problem: ' + esc(CL.err) : CL.busy || CL.pulling ? 'Syncing…' : n ? n + ' change(s) waiting to upload' : 'All changes saved to the cloud ☁️'}</div>
     ${CL.last ? `<div class="small mut">Last sync ${fmtDate(CL.last)} ${fmtTime(CL.last)}</div>` : ''}</div><button class="btn sec sm" onclick="syncNow()">Sync now</button></div>`;
 }
+window.setPassword = async () => {
+  const p = $('#newPass').value; if (p.length < 6) { toast('At least 6 characters'); return; }
+  const { error } = await CL.sb.auth.updateUser({ password: p });
+  if (error) { toast(authMsg(error)); return; }
+  $('#newPass').value = ''; toast('Password saved ✔ — use it to sign in next time');
+};
 window.saveMyName = async () => {
   const n = $('#myName').value.trim(); if (!n) return;
   const { error } = await CL.sb.rpc('set_my_name', { p_team: CL.team.id, p_name: n });
@@ -278,7 +323,7 @@ window.invite = async () => {
   if (error) { toast(error.message); return; }
   await refreshTeam().catch(() => {}); render(); shareInvite(email);
 };
-window.shareInvite = email => shareText(`Hi! 💜 You're invited to "${CL.team.name}" on Ube POS.\n\n1. Open ${CFG.appUrl || location.href.split('#')[0]}${CFG.apkUrl ? `\n   (Android app: ${CFG.apkUrl})` : ''}\n2. Sign in with this email: ${email}\n3. Type the code we send to your email.\n\nYou'll see our stock, sales and orders right away.`, 'Ube POS invite');
+window.shareInvite = email => shareText(`Hi! 💜 You're invited to "${CL.team.name}" on Ube POS.\n\n1. Open ${CFG.appUrl || location.href.split('#')[0]}${CFG.apkUrl ? `\n   (Android app: ${CFG.apkUrl})` : ''}\n2. Tap “Create account” and use this email: ${email}\n3. Confirm the email we send you (one time only), then sign in.\n\nYou'll see our stock, sales and orders right away.`, 'Ube POS invite');
 window.cancelInvite = async email => {
   if (!confirm(`Cancel the invite for ${email}?`)) return;
   const { error } = await CL.sb.from('invites').delete().eq('team_id', CL.team.id).eq('email', email);
@@ -322,6 +367,6 @@ async function cloudBoot() {
     render(); return;
   }
   if (!localStorage.getItem(LOCAL_ONLY) || linkErr) showGate();
-  if (linkErr) { $('#gErr').textContent = /expired|invalid/i.test(linkErr) ? 'That login link expired or was already used. Send a new one.' : linkErr; history.replaceState(null, '', location.pathname); }
+  if (linkErr) { $('#gErr').textContent = /expired|invalid/i.test(linkErr) ? 'That email link expired or was already used. Sign in with your password, or request a new link.' : linkErr; history.replaceState(null, '', location.pathname); }
 }
 cloudBoot();

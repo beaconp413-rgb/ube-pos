@@ -127,7 +127,8 @@ function period(key) {
   if (key === 'season') return [S.settings.seasonStart, S.settings.seasonEnd];
   return ['0000', '9999'];
 }
-const inP = (ts, [a, b]) => { const x = ts.slice(0, 10); return x >= a && x <= b; };
+const localDay = ts => ts.length > 10 ? ymd(ts) : ts; // stored times are UTC; compare by the phone's local date
+const inP = (ts, [a, b]) => { const x = localDay(ts); return x >= a && x <= b; };
 function metrics(p) {
   const sales = S.sales.filter(s => inP(s.ts, p));
   const rev = sales.reduce((a, s) => a + s.total, 0), cogs = sales.reduce((a, s) => a + s.cost, 0);
@@ -146,7 +147,7 @@ function nextCutoff() {
 }
 function reorderPlan() { // sell rate of last 14 days × 14 days cover + open orders − stock
   const since = addDays(today(), -13), sold = {};
-  S.sales.filter(s => s.ts.slice(0, 10) >= since).forEach(s => { const e = expand(s.items); for (const k in e) sold[k] = (sold[k] || 0) + e[k]; });
+  S.sales.filter(s => localDay(s.ts) >= since).forEach(s => { const e = expand(s.items); for (const k in e) sold[k] = (sold[k] || 0) + e[k]; });
   const reserved = expand(S.orders.filter(o => o.status === 'open').flatMap(o => o.items));
   return S.products.filter(p => p.kind === 'item' && p.active).map(p => {
     const rate = (sold[p.id] || 0) / 14, stock = baseStock(p.id), res = reserved[p.id] || 0;
@@ -700,7 +701,7 @@ function vSettings(v) {
   <div class="card"><b>Backup & sharing</b><p class="small mut">Data is saved on this phone only. Back up daily and send the file to the team group chat.</p>
   <div class="row"><button class="btn grow" onclick="exportData()">⬇️ Backup file</button><label class="btn sec grow" style="text-align:center">⬆️ Restore<input type="file" accept=".json,application/json" hidden onchange="importData(this.files[0])"></label></div>
   <button class="btn danger block" style="margin-top:10px" onclick="resetAll()">Erase all data on this phone</button></div>
-  <div class="small mut r">Ube POS v2.1</div>`;
+  <div class="small mut r">Ube POS v2.2</div>`;
 }
 window.setP = (id, k, val) => { P(id)[k] = val; save(); };
 window.setPart = (id, i, pid) => { P(id).parts[i].pid = pid; save(); };
