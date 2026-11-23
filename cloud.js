@@ -120,7 +120,7 @@ function showGate(step, msg) {
     <p class="mut small">No email after 2 minutes? Check Spam / Promotions.</p>
     <button class="btn block" id="gBtn" onclick="gateCheck()">I tapped the link</button>
     <button class="btn ghost block" style="margin-top:8px" onclick="showGate()">Back to sign in</button>`;
-  else if (step === 'signup') body = `<p class="mut small">Create your account. You'll get <b>one</b> confirmation email — after that you sign in with your password.</p>${email}
+  else if (step === 'signup') body = `<p class="mut small">Create your account with your email and a password. Remember the password — you'll use it to sign in on any phone.</p>${email}
     <label class="f">Choose a password (at least 6 characters)<input id="gPass" type="password" autocomplete="new-password"></label>
     <button class="btn block" id="gBtn" onclick="gateSignUp()">Create account</button>
     <button class="btn ghost block" style="margin-top:8px" onclick="showGate()">I already have an account</button>`;
@@ -323,7 +323,7 @@ window.invite = async () => {
   if (error) { toast(error.message); return; }
   await refreshTeam().catch(() => {}); render(); shareInvite(email);
 };
-window.shareInvite = email => shareText(`Hi! 💜 You're invited to "${CL.team.name}" on Ube POS.\n\n1. Open ${CFG.appUrl || location.href.split('#')[0]}${CFG.apkUrl ? `\n   (Android app: ${CFG.apkUrl})` : ''}\n2. Tap “Create account” and use this email: ${email}\n3. Confirm the email we send you (one time only), then sign in.\n\nYou'll see our stock, sales and orders right away.`, 'Ube POS invite');
+window.shareInvite = email => shareText(`Hi! 💜 You're invited to "${CL.team.name}" on Ube POS.\n\n1. Open ${CFG.appUrl || location.href.split('#')[0]}${CFG.apkUrl ? `\n   (Android app: ${CFG.apkUrl})` : ''}\n2. Tap “New here? Create account”\n3. Use this exact email: ${email} and choose a password.\n\nYou'll see our stock, sales and orders right away.`, 'Ube POS invite');
 window.cancelInvite = async email => {
   if (!confirm(`Cancel the invite for ${email}?`)) return;
   const { error } = await CL.sb.from('invites').delete().eq('team_id', CL.team.id).eq('email', email);

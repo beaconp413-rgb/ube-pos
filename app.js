@@ -701,7 +701,7 @@ function vSettings(v) {
   <div class="card"><b>Backup & sharing</b><p class="small mut">Data is saved on this phone only. Back up daily and send the file to the team group chat.</p>
   <div class="row"><button class="btn grow" onclick="exportData()">⬇️ Backup file</button><label class="btn sec grow" style="text-align:center">⬆️ Restore<input type="file" accept=".json,application/json" hidden onchange="importData(this.files[0])"></label></div>
   <button class="btn danger block" style="margin-top:10px" onclick="resetAll()">Erase all data on this phone</button></div>
-  <div class="small mut r">Ube POS v2.2</div>`;
+  <div class="small mut r">Ube POS v2.3</div>`;
 }
 window.setP = (id, k, val) => { P(id)[k] = val; save(); };
 window.setPart = (id, i, pid) => { P(id).parts[i].pid = pid; save(); };
