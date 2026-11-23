@@ -113,13 +113,14 @@ function showGate(step) {
   let g = $('#gate');
   if (!g) { g = document.createElement('div'); g.id = 'gate'; document.body.appendChild(g); }
   g.innerHTML = `<div class="gate-box"><img src="icons/icon.svg" alt="" style="width:64px;height:64px;border-radius:16px"><h2 style="margin:12px 0 4px">Ube POS</h2>
-  ${step === 'code' ? `<p class="mut small">We emailed a code to <b>${esc(gateEmail)}</b>. Check Spam/Promotions if you don't see it.</p>
-    <label class="f">Login code<input id="gCode" inputmode="numeric" autocomplete="one-time-code" maxlength="10" style="font-size:22px;letter-spacing:6px;text-align:center"></label>
-    <button class="btn block" id="gBtn" onclick="gateVerify()">Sign in</button>
+  ${step === 'code' ? `<div style="font-size:40px;margin:6px 0">📩</div><p>We sent an email to <b>${esc(gateEmail)}</b>.</p>
+    <p class="small"><b>Open it on this phone and tap “Log In”.</b> Ube POS opens and signs you in.</p>
+    <p class="mut small">No email after 2 minutes? Check Spam / Promotions.</p>
+    <button class="btn block" id="gBtn" onclick="gateCheck()">I tapped the link</button>
     <button class="btn ghost block" style="margin-top:8px" onclick="showGate()">Use a different email</button>`
   : `<p class="mut small">Sign in with your email — no password. Your team sees the same stock and sales on every phone.</p>
     <label class="f">Email<input id="gEmail" type="email" inputmode="email" autocomplete="email" value="${esc(gateEmail)}" placeholder="you@gmail.com"></label>
-    <button class="btn block" id="gBtn" onclick="gateSend()">Email me a login code</button>`}
+    <button class="btn block" id="gBtn" onclick="gateSend()">Email me a login link</button>`}
   <div id="gErr" class="small bad" style="margin-top:8px"></div>
   ${step === 'code' ? '' : `<button class="btn ghost block" style="margin-top:18px;border:0" onclick="useLocalOnly()">Use without an account (this phone only)</button>`}</div>`;
   g.style.display = 'flex';
@@ -132,8 +133,8 @@ window.gateSend = async () => {
   if (!/^\S+@\S+\.\S+$/.test(gateEmail)) { $('#gErr').textContent = 'Enter a valid email.'; return; }
   if (!navigator.onLine) { $('#gErr').textContent = 'You are offline. Connect to the internet to sign in.'; return; }
   gateBusy(true, 'Sending…');
-  const { error } = await CL.sb.auth.signInWithOtp({ email: gateEmail, options: { shouldCreateUser: true } });
-  if (error) { gateBusy(false, 'Email me a login code'); $('#gErr').textContent = /rate|seconds/i.test(error.message) ? 'Too many codes requested. Wait a minute, then try again.' : error.message; return; }
+  const { error } = await CL.sb.auth.signInWithOtp({ email: gateEmail, options: { shouldCreateUser: true, emailRedirectTo: CFG.appUrl || location.origin + location.pathname } });
+  if (error) { gateBusy(false, 'Email me a login link'); $('#gErr').textContent = /rate|seconds/i.test(error.message) ? 'Too many codes requested. Wait a minute, then try again.' : error.message; return; }
   showGate('code');
 };
 window.gateVerify = async () => {
@@ -145,10 +146,21 @@ window.gateVerify = async () => {
   localStorage.removeItem(LOCAL_ONLY);
   await afterLogin(data.user);
 };
+window.gateCheck = async () => {
+  gateBusy(true, 'Checking…');
+  const s = (await CL.sb.auth.getSession()).data.session;
+  if (s) { localStorage.removeItem(LOCAL_ONLY); await afterLogin(s.user); return; }
+  gateBusy(false, 'I tapped the link'); $('#gErr').textContent = 'Not signed in yet. Tap “Log In” in the newest email, then come back here.';
+};
 window.useLocalOnly = () => { localStorage.setItem(LOCAL_ONLY, '1'); hideGate(); render(); };
 
 /* ---------- team setup ---------- */
 async function afterLogin(user) {
+  if (CL.loginBusy) return;
+  CL.loginBusy = true;
+  try { await doLogin(user); } finally { CL.loginBusy = false; }
+}
+async function doLogin(user) {
   CL.user = { id: user.id, email: (user.email || '').toLowerCase() };
   const { data: teamId, error } = await CL.sb.rpc('accept_invites', { p_name: '' });
   if (error) { showGate(); $('#gErr').textContent = 'Could not load your team: ' + error.message; return; }
@@ -284,7 +296,10 @@ window.removeMember = async uid => {
 /* ---------- boot ---------- */
 async function cloudBoot() {
   if (!CFG.url || !CFG.key || !window.supabase) return;
-  CL.sb = supabase.createClient(CFG.url, CFG.key, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false } });
+  const linkErr = new URLSearchParams(location.hash.slice(1)).get('error_description');
+  CL.sb = supabase.createClient(CFG.url, CFG.key, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, flowType: 'implicit' } });
+  // the email link signs in whichever tab opens it; other open tabs follow
+  CL.sb.auth.onAuthStateChange((ev, s) => { if (ev === 'SIGNED_IN' && s && !CL.user) setTimeout(() => { localStorage.removeItem(LOCAL_ONLY); afterLogin(s.user); }, 0); });
   window.addEventListener('online', async () => {
     if (CL.offlineStart) { // started offline: confirm the login is still valid now that we have signal
       CL.offlineStart = false;
@@ -299,13 +314,14 @@ async function cloudBoot() {
   const cached = JSON.parse(localStorage.getItem(CACHE) || 'null');
   let session = null;
   try { session = (await CL.sb.auth.getSession()).data.session; } catch (e) { /* offline */ }
-  if (session) { await afterLogin(session.user); return; }
+  if (session) { if (!CL.team) await afterLogin(session.user); return; }
   if (cached && !navigator.onLine) { // offline start: keep selling, sync later
     Object.assign(CL, { user: cached.user, team: cached.team, member: cached.member, offlineStart: true });
     const st = JSON.parse(localStorage.getItem(syncKey()) || 'null');
     if (st) { CL.snap = st.snap || {}; CL.cursor = st.cursor; CL.last = st.last; }
     render(); return;
   }
-  if (!localStorage.getItem(LOCAL_ONLY)) showGate();
+  if (!localStorage.getItem(LOCAL_ONLY) || linkErr) showGate();
+  if (linkErr) { $('#gErr').textContent = /expired|invalid/i.test(linkErr) ? 'That login link expired or was already used. Send a new one.' : linkErr; history.replaceState(null, '', location.pathname); }
 }
 cloudBoot();

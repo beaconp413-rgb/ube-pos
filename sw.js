@@ -1,4 +1,4 @@
-const CACHE = 'ube-pos-v2.0';
+const CACHE = 'ube-pos-v2.1';
 const FILES = ['./', 'index.html', 'app.js', 'cloud.js', 'config.js', 'vendor/supabase.js', 'styles.css', 'manifest.json', 'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES))); self.skipWaiting(); });
 self.addEventListener('activate', e => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k))))); self.clients.claim(); });

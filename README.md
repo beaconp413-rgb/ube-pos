@@ -37,6 +37,8 @@ Tests: test_ube.py 19/19 and test_ube2.py 17/17.
 ### Supabase setup (one time)
 1. Create project `ube-pos`, region Southeast Asia (Singapore), Free plan.
 2. Run `supabase/schema.sql` (SQL editor or migration).
-3. Authentication → Emails → Templates: in **Magic Link** and **Confirm signup**, replace the body so it contains the code:
-   `<h2>Your Ube POS login code</h2><p style="font-size:28px;letter-spacing:4px"><b>{{ .Token }}</b></p><p>Type this code in the app. It expires in 1 hour.</p>`
+3. Login uses Supabase's default **email link** (the free plan can't edit email templates without custom SMTP). Site URL + redirect = https://beaconp413-rgb.github.io/ube-pos/ (set via `supabase config push`).
 4. Put Project URL + publishable key into `config.js`.
+
+**Done 2026-11-24** on project `ube-pos` (ref ljlnrpwpvimtnklnyhvk, Singapore, free). The schema was applied with `supabase db query --linked -f` because the MCP apply_migration was auto-declined. An RLS test (rolled back) passed: outsiders see nothing, members can't invite, the owner can remove people, and a removed member loses access.
+Built-in email is rate-limited (a few emails/hour). Add custom SMTP (e.g. Resend, free) if people get locked out.
