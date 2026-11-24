@@ -140,11 +140,13 @@ function metrics(p) {
 }
 /* ---------- targets (events, monthly, weekly) ---------- */
 const TKINDS = { event: 'Event (set dates)', month: 'Every month', week: 'Every week (Mon–Sun)' };
-function targets() { // older data had one Christmas target; turn it into the list on first use
+// Older data had one Christmas target. Show it as a list, but only store the list when someone edits a target:
+// writing it while just drawing the screen would count as a change and could overwrite the team's targets on sync.
+function targets() {
   const st = S.settings;
-  if (!Array.isArray(st.targets)) st.targets = [{ id: 'xmas', name: 'Christmas', emoji: '🎄', kind: 'event', start: st.seasonStart, end: st.seasonEnd, goal: num(st.target) || 100, unit: 'pcs' }];
-  return st.targets;
+  return Array.isArray(st.targets) ? st.targets : [{ id: 'xmas', name: 'Christmas', emoji: '🎄', kind: 'event', start: st.seasonStart, end: st.seasonEnd, goal: num(st.target) || 100, unit: 'pcs' }];
 }
+const ownTargets = () => (S.settings.targets = targets());
 function tRange(t, day = today()) {
   if (t.kind === 'month') { const d = new Date(day + 'T00:00:00'); return [day.slice(0, 8) + '01', ymd(new Date(d.getFullYear(), d.getMonth() + 1, 0))]; }
   if (t.kind === 'week') { const a = addDays(day, -((new Date(day + 'T00:00:00').getDay() + 6) % 7)); return [a, addDays(a, 6)]; }
@@ -181,11 +183,11 @@ window.saveTarget = id => {
   if (!name) return alert('Give the target a name.');
   if (goal <= 0) return alert('Set a goal above 0.');
   if (kind === 'event' && (!a || !b || b < a)) return alert('Check the dates: the end must be on or after the start.');
-  const list = targets(), t = list.find(x => x.id === id) || (list.push({ id: uid() }), list[list.length - 1]);
+  const list = ownTargets(), t = list.find(x => x.id === id) || (list.push({ id: uid() }), list[list.length - 1]);
   Object.assign(t, { name, emoji: $('#tgE').value.trim(), kind, goal, unit: $('#tgU').value, start: kind === 'event' ? a : '', end: kind === 'event' ? b : '' });
   save(); closeSheet(); render(); toast('Target saved');
 };
-window.delTarget = id => { if (!confirm('Delete this target? Sales are not affected.')) return; S.settings.targets = targets().filter(x => x.id !== id); save(); closeSheet(); render(); };
+window.delTarget = id => { if (!confirm('Delete this target? Sales are not affected.')) return; S.settings.targets = ownTargets().filter(x => x.id !== id); save(); closeSheet(); render(); };
 const fund = () => num(S.openingFund) + S.cash.reduce((a, c) => a + (c.kind === 'in' ? c.amount : -c.amount), 0);
 function nextCutoff() {
   const d = new Date(), { cutoffDay, cutoffHour } = S.settings;
@@ -748,7 +750,7 @@ function vSettings(v) {
   <div class="card"><b>Backup & sharing</b><p class="small mut">Data is saved on this phone only. Back up daily and send the file to the team group chat.</p>
   <div class="row"><button class="btn grow" onclick="exportData()">⬇️ Backup file</button><label class="btn sec grow" style="text-align:center">⬆️ Restore<input type="file" accept=".json,application/json" hidden onchange="importData(this.files[0])"></label></div>
   <button class="btn danger block" style="margin-top:10px" onclick="resetAll()">Erase all data on this phone</button></div>
-  <div class="small mut r">Ube POS v2.5</div>`;
+  <div class="small mut r">Ube POS v2.5.1</div>`;
 }
 window.setP = (id, k, val) => { P(id)[k] = val; save(); };
 window.setPart = (id, i, pid) => { P(id).parts[i].pid = pid; save(); };
