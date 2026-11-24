@@ -124,9 +124,10 @@ function period(key) {
   if (key === 'today') return [t, t];
   if (key === 'week') { const dow = (d.getDay() + 6) % 7; return [addDays(t, -dow), t]; }
   if (key === 'month') return [t.slice(0, 8) + '01', t];
-  if (key === 'season') return [S.settings.seasonStart, S.settings.seasonEnd];
+  if (key === 'season') { const t = mainEvent(); return t ? [t.start, t.end] : [S.settings.seasonStart, S.settings.seasonEnd]; }
   return ['0000', '9999'];
 }
+const mainEvent = () => { const ev = targets().filter(t => t.kind === 'event'); return ev.find(t => t.end >= today() && t.start <= today()) || ev.find(t => t.end >= today()) || ev[ev.length - 1]; };
 const localDay = ts => ts.length > 10 ? ymd(ts) : ts; // stored times are UTC; compare by the phone's local date
 const inP = (ts, [a, b]) => { const x = localDay(ts); return x >= a && x <= b; };
 function metrics(p) {
@@ -137,6 +138,54 @@ function metrics(p) {
   const pcs = sales.reduce((a, s) => a + pcsOf(s.items), 0), del = sales.reduce((a, s) => a + (s.delFee || 0), 0);
   return { sales, del, rev, cogs, gross: rev - cogs, exp, loss, net: rev - cogs - exp - loss, pcs, n: sales.length };
 }
+/* ---------- targets (events, monthly, weekly) ---------- */
+const TKINDS = { event: 'Event (set dates)', month: 'Every month', week: 'Every week (Mon–Sun)' };
+function targets() { // older data had one Christmas target; turn it into the list on first use
+  const st = S.settings;
+  if (!Array.isArray(st.targets)) st.targets = [{ id: 'xmas', name: 'Christmas', emoji: '🎄', kind: 'event', start: st.seasonStart, end: st.seasonEnd, goal: num(st.target) || 100, unit: 'pcs' }];
+  return st.targets;
+}
+function tRange(t, day = today()) {
+  if (t.kind === 'month') { const d = new Date(day + 'T00:00:00'); return [day.slice(0, 8) + '01', ymd(new Date(d.getFullYear(), d.getMonth() + 1, 0))]; }
+  if (t.kind === 'week') { const a = addDays(day, -((new Date(day + 'T00:00:00').getDay() + 6) % 7)); return [a, addDays(a, 6)]; }
+  return [t.start, t.end];
+}
+function tProgress(t) {
+  const [a, b] = tRange(t), m = metrics([a, b]), done = t.unit === 'peso' ? m.rev : m.pcs, goal = num(t.goal);
+  const started = a <= today(), ended = b < today(), daysLeft = started && !ended ? daysBetween(today(), b) + 1 : 0;
+  const left = Math.max(0, goal - done), perDay = daysLeft ? Math.ceil(left / daysLeft) : 0;
+  return { a, b, done, goal, pct: Math.min(100, Math.round(done / Math.max(1, goal) * 100)), started, ended, daysLeft, left, perDay };
+}
+const tFmt = (t, n) => t.unit === 'peso' ? peso(n) : n + ' pcs';
+const tLabel = t => `${t.emoji || '🎯'} ${t.name}`;
+const tShown = () => targets().filter(t => { const [a, b] = tRange(t); return b >= today() && daysBetween(today(), a) <= 30; });
+function targetCard(t) {
+  const g = tProgress(t), when = t.kind === 'event' ? `${fmtDate(g.a)} – ${fmtDate(g.b)}` : t.kind === 'month' ? new Date(g.a + 'T00:00:00').toLocaleDateString('en-PH', { month: 'long' }) : `Week ${fmtDate(g.a)} – ${fmtDate(g.b)}`;
+  const note = !g.started ? `Starts in ${daysBetween(today(), g.a)} days` : g.pct >= 100 ? 'Target reached! 🎉' : `${g.daysLeft} day${g.daysLeft === 1 ? '' : 's'} left · need about <b>${tFmt(t, g.perDay)}/day</b>`;
+  return `<div class="card"><div class="row sb"><b>${esc(tLabel(t))}</b><span class="mut small">${when}</span></div>
+    <div class="row sb" style="margin:8px 0 6px"><span style="font-size:22px;font-weight:700">${tFmt(t, g.done)} <span class="mut" style="font-size:14px">/ ${tFmt(t, g.goal)}</span></span><b class="${g.pct >= 100 ? 'ok' : ''}">${g.pct}%</b></div>
+    <div class="bar"><i style="width:${g.pct}%"></i></div><div class="small mut" style="margin-top:6px">${note}</div></div>`;
+}
+window.targetForm = id => {
+  const t = targets().find(x => x.id === id) || { kind: 'event', unit: 'pcs', emoji: '🎯', start: today(), end: addDays(today(), 30) };
+  openSheet(`<h2>${id ? 'Edit' : 'New'} target</h2>
+  <div class="row"><label class="f" style="width:70px">Icon<input id="tgE" value="${esc(t.emoji || '')}" maxlength="4"></label><label class="f grow">Name<input id="tgN" value="${esc(t.name || '')}" placeholder="e.g. Christmas, Valentine's, Church order"></label></div>
+  <label class="f">Repeats<select id="tgK" onchange="$('#tgD').style.display=this.value==='event'?'':'none'">${Object.entries(TKINDS).map(([k, l]) => `<option value="${k}" ${t.kind === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+  <div class="grid2" id="tgD" style="${t.kind === 'event' ? '' : 'display:none'}"><label class="f">Start<input type="date" id="tgA" value="${t.start || today()}"></label><label class="f">End<input type="date" id="tgB" value="${t.end || today()}"></label></div>
+  <div class="grid2"><label class="f">Goal<input type="number" inputmode="decimal" id="tgG" value="${t.goal || ''}"></label>
+  <label class="f">Count by<select id="tgU"><option value="pcs" ${t.unit !== 'peso' ? 'selected' : ''}>Pieces sold</option><option value="peso" ${t.unit === 'peso' ? 'selected' : ''}>₱ sales</option></select></label></div>
+  <div class="row"><button class="btn grow" onclick="saveTarget('${id || ''}')">Save</button>${id ? `<button class="btn danger" onclick="delTarget('${id}')">Delete</button>` : ''}</div>`);
+};
+window.saveTarget = id => {
+  const name = $('#tgN').value.trim(), goal = num($('#tgG').value), kind = $('#tgK').value, a = $('#tgA').value, b = $('#tgB').value;
+  if (!name) return alert('Give the target a name.');
+  if (goal <= 0) return alert('Set a goal above 0.');
+  if (kind === 'event' && (!a || !b || b < a)) return alert('Check the dates: the end must be on or after the start.');
+  const list = targets(), t = list.find(x => x.id === id) || (list.push({ id: uid() }), list[list.length - 1]);
+  Object.assign(t, { name, emoji: $('#tgE').value.trim(), kind, goal, unit: $('#tgU').value, start: kind === 'event' ? a : '', end: kind === 'event' ? b : '' });
+  save(); closeSheet(); render(); toast('Target saved');
+};
+window.delTarget = id => { if (!confirm('Delete this target? Sales are not affected.')) return; S.settings.targets = targets().filter(x => x.id !== id); save(); closeSheet(); render(); };
 const fund = () => num(S.openingFund) + S.cash.reduce((a, c) => a + (c.kind === 'in' ? c.amount : -c.amount), 0);
 function nextCutoff() {
   const d = new Date(), { cutoffDay, cutoffHour } = S.settings;
@@ -157,10 +206,7 @@ function reorderPlan() { // sell rate of last 14 days × 14 days cover + open or
 
 /* ---------- HOME ---------- */
 function vHome(v) {
-  const s = S.settings, season = metrics(period('season')), td = metrics(period('today'));
-  const pct = Math.min(100, Math.round(season.pcs / Math.max(1, s.target) * 100));
-  const daysLeft = Math.max(0, daysBetween(today(), s.seasonEnd));
-  const perDay = daysLeft ? Math.ceil(Math.max(0, s.target - season.pcs) / daysLeft) : 0;
+  const s = S.settings, td = metrics(period('today')), shown = tShown();
   const alerts = [];
   const exp = S.batches.filter(b => b.qty > 0 && b.expires < today());
   if (exp.length) alerts.push(`<div class="alert bad">⚠️ <b>${exp.reduce((a, b) => a + b.qty, 0)} pcs expired</b> — do not sell. <a href="#" onclick="go('stock');return false">Discard in Stock</a></div>`);
@@ -173,10 +219,7 @@ function vHome(v) {
   const cut = nextCutoff(), hrs = Math.round((cut - new Date()) / 36e5);
   const plan = reorderPlan().filter(r => r.suggest > 0);
   v.innerHTML = `
-  <div class="card"><div class="row sb"><b>🎄 Christmas target</b><span class="mut small">${fmtDate(s.seasonStart)} – ${fmtDate(s.seasonEnd)}</span></div>
-    <div class="row sb" style="margin:8px 0 6px"><span style="font-size:22px;font-weight:700">${season.pcs} <span class="mut" style="font-size:14px">/ ${s.target} pcs</span></span><b class="${pct >= 100 ? 'ok' : ''}">${pct}%</b></div>
-    <div class="bar"><i style="width:${pct}%"></i></div>
-    <div class="small mut" style="margin-top:6px">${pct >= 100 ? 'Target reached! 🎉' : `${daysLeft} days left · need about <b>${perDay} pcs/day</b>`}</div></div>
+  ${shown.map(targetCard).join('') || `<div class="card row sb"><span class="mut">No active target</span><button class="btn sm sec" onclick="targetForm()">+ Add target</button></div>`}
   <div class="grid3">
     <div class="card stat"><small>Today sales</small><b>${peso(td.rev)}</b><small>${td.pcs} pcs</small></div>
     <div class="card stat"><small>Today profit</small><b class="${td.net >= 0 ? 'ok' : 'bad'}">${peso(td.net)}</b><small>after costs</small></div>
@@ -558,7 +601,7 @@ window.cancelOrder = id => {
 function vMore(v) {
   v.innerHTML = `<h2>More</h2><div class="card list menu">
   ${[['team', '🔐', 'Team & account', window.cloudName && cloudName() ? 'Signed in · invite or remove team members' : 'Sign in to share with your team'], ['customers', '👥', 'Customers & resellers', 'Repeat buyers, contact, history'], ['money', '💰', 'Money (revolving fund)', 'Daily cash in / cash out, expenses'],
-    ['reports', '📊', 'Reports', 'Real profit by day, week, month, season'], ['settings', '⚙️', 'Settings & backup', 'Products, prices, team, target']]
+    ['reports', '📊', 'Reports', 'Real profit by day, week, month, event'], ['settings', '⚙️', 'Settings & backup', 'Products, prices, team, target']]
     .map(([t, i, a, b]) => `<div class="it" onclick="go('${t}')"><span>${i}</span><div class="grow"><b>${a}</b><div class="small mut">${b}</div></div><span class="mut">›</span></div>`).join('')}</div>
   <h3>Recent sales</h3><div class="card list">${S.sales.slice(-15).reverse().map(s => `<div class="it" onclick="saleView('${s.id}')" style="cursor:pointer"><div class="grow"><b>${esc(s.custName)}</b> <span class="small mut">· ${fmtDate(s.ts)} ${fmtTime(s.ts)} · ${esc(s.seller)}</span>
     <div class="small mut">${s.items.map(l => l.qty + '× ' + esc(l.name)).join(', ')}</div></div><b>${peso(s.total)}</b></div>`).join('') || '<div class="small mut">No sales yet.</div>'}</div>`;
@@ -651,7 +694,7 @@ function vReports(v) {
   m.sales.forEach(s => { s.items.forEach(l => { const x = byP[l.name] ||= { q: 0, amt: 0 }; x.q += l.qty; x.amt += l.qty * l.price; });
     bySeller[s.seller] = (bySeller[s.seller] || 0) + s.total; byPay[s.pay] = (byPay[s.pay] || 0) + s.total; });
   const tbl = (o, money) => Object.entries(o).sort((a, b) => (money ? b[1] - a[1] : b[1].amt - a[1].amt)).map(([k, x]) => `<tr><td>${esc(k)}</td>${money ? `<td class="r">${peso(x)}</td>` : `<td class="r">${x.q}</td><td class="r">${peso(x.amt)}</td>`}</tr>`).join('');
-  v.innerHTML = `<h2>Reports</h2><div class="seg" style="margin-bottom:10px">${[['today', 'Today'], ['week', 'Week'], ['month', 'Month'], ['season', 'Christmas']].map(([k, l]) => `<button class="${rp === k ? 'on' : ''}" onclick="rp='${k}';render()">${l}</button>`).join('')}</div>
+  v.innerHTML = `<h2>Reports</h2><div class="seg" style="margin-bottom:10px">${[['today', 'Today'], ['week', 'Week'], ['month', 'Month'], ['season', mainEvent()?.name || 'Event']].map(([k, l]) => `<button class="${rp === k ? 'on' : ''}" onclick="rp='${k}';render()">${l}</button>`).join('')}</div>
   <div class="card"><table class="t"><tr><td>Sales (${m.n} transactions, ${m.pcs} pcs)${m.del ? `<div class="small mut">incl. ${peso(m.del)} delivery fees</div>` : ''}</td><td class="r"><b>${peso(m.rev)}</b></td></tr>
   <tr><td>− Cost of goods (franchise price)</td><td class="r">${peso(m.cogs)}</td></tr><tr><td>= Gross profit</td><td class="r">${peso(m.gross)}</td></tr>
   <tr><td>− Expenses (rider, shipping, packaging…)</td><td class="r">${peso(m.exp)}</td></tr><tr><td>− Losses & giveaways</td><td class="r">${peso(m.loss)}</td></tr>
@@ -665,12 +708,12 @@ function vReports(v) {
   <button class="btn block" onclick="pdfBtn(this)">⬇️ Download PDF</button></div>`;
 }
 function reportText(k) {
-  const m = metrics(period(k)), s = metrics(period('season')), byP = {};
+  const m = metrics(period(k)), byP = {};
   m.sales.forEach(x => x.items.forEach(l => byP[l.name] = (byP[l.name] || 0) + l.qty));
-  const label = { today: 'Today ' + fmtDate(today()), week: 'This week', month: 'This month', season: 'Christmas season' }[k];
+  const label = { today: 'Today ' + fmtDate(today()), week: 'This week', month: 'This month', season: (mainEvent()?.name || 'Event') }[k];
   return `📊 ${S.settings.branch} — ${label}\nSales: ${peso(m.rev)} (${m.pcs} pcs, ${m.n} txns)\nReal profit: ${peso(m.net)}\n` +
     Object.entries(byP).map(([n, q]) => `• ${n}: ${q}`).join('\n') +
-    `\nFund on hand: ${peso(fund())}\n🎄 Target: ${s.pcs}/${S.settings.target} pcs\nStock: ` +
+    `\nFund on hand: ${peso(fund())}\n` + tShown().map(t => { const g = tProgress(t); return `${tLabel(t)}: ${tFmt(t, g.done)} / ${tFmt(t, g.goal)} (${g.pct}%)`; }).join('\n') + `\nStock: ` +
     S.products.filter(p => p.kind === 'item' && p.active).map(p => `${p.name.replace('Jar Flan – ', 'Flan ')} ${baseStock(p.id)}`).join(', ') +
     `\nOpen orders: ${S.orders.filter(o => o.status === 'open').length}`;
 }
@@ -692,11 +735,11 @@ function vSettings(v) {
   <label class="f">Branch name<input value="${esc(s.branch)}" onchange="setS('branch',this.value)"></label>
   ${window.cloudName && cloudName() ? '<div class="small mut" style="margin-bottom:10px">Team members are managed in More → Team & account.</div>' : `<label class="f">Team members (comma separated)<input value="${esc(s.team.join(', '))}" onchange="setS('team',this.value.split(',').map(x=>x.trim()).filter(Boolean))"></label>`}
   <label class="f">Receipt thank-you message<textarea rows="2" onchange="setS('thanks',this.value)">${esc(s.thanks)}</textarea></label></div>
-  <div class="card"><b>Targets & rules</b>
-  <div class="grid2"><label class="f">Christmas target (pcs)<input type="number" value="${s.target}" onchange="setS('target',num(this.value))"></label>
+  <div class="card"><div class="row sb"><b>🎯 Targets</b><button class="btn sm sec" onclick="targetForm()">+ Add target</button></div>
+  <div class="list">${targets().map(t => { const g = tProgress(t); return `<div class="it" style="cursor:pointer" onclick="targetForm('${t.id}')"><div class="grow"><b>${esc(tLabel(t))}</b><div class="small mut">${TKINDS[t.kind]}${t.kind === 'event' ? ` · ${fmtDate(t.start)} – ${fmtDate(t.end)}` : ''} · goal ${tFmt(t, t.goal)}</div></div><span class="pill ${g.ended ? '' : g.pct >= 100 ? 'ok' : ''}">${g.ended ? 'ended' : g.pct + '%'}</span></div>`; }).join('') || '<div class="empty">No targets yet</div>'}</div></div>
+  <div class="card"><b>Rules</b>
+  <div class="grid2">
   <label class="f">Opening cash (₱)<input type="number" value="${S.openingFund || ''}" onchange="S.openingFund=num(this.value);save()"></label>
-  <label class="f">Season start<input type="date" value="${s.seasonStart}" onchange="setS('seasonStart',this.value)"></label>
-  <label class="f">Season end<input type="date" value="${s.seasonEnd}" onchange="setS('seasonEnd',this.value)"></label>
   <label class="f">Frozen shelf life (days)<input type="number" value="${s.shelfDays}" onchange="setS('shelfDays',num(this.value))"></label>
   <label class="f">Low-stock alert (pcs)<input type="number" value="${s.lowStock}" onchange="setS('lowStock',num(this.value))"></label>
   <label class="f">Order cutoff day<select onchange="setS('cutoffDay',num(this.value))">${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d, i) => `<option value="${i}" ${i === s.cutoffDay ? 'selected' : ''}>${d}</option>`).join('')}</select></label>
@@ -705,7 +748,7 @@ function vSettings(v) {
   <div class="card"><b>Backup & sharing</b><p class="small mut">Data is saved on this phone only. Back up daily and send the file to the team group chat.</p>
   <div class="row"><button class="btn grow" onclick="exportData()">⬇️ Backup file</button><label class="btn sec grow" style="text-align:center">⬆️ Restore<input type="file" accept=".json,application/json" hidden onchange="importData(this.files[0])"></label></div>
   <button class="btn danger block" style="margin-top:10px" onclick="resetAll()">Erase all data on this phone</button></div>
-  <div class="small mut r">Ube POS v2.4</div>`;
+  <div class="small mut r">Ube POS v2.5</div>`;
 }
 window.setP = (id, k, val) => { P(id)[k] = val; save(); };
 window.setPart = (id, i, pid) => { P(id).parts[i].pid = pid; save(); };

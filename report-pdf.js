@@ -50,6 +50,11 @@
       ['= REAL PROFIT', money(m.net)]
     ], { startY: 110, ...rcols(1), didParseCell: d => { if (d.section === 'body' && d.row.index === 6) { d.cell.styles.fontStyle = 'bold'; d.cell.styles.fillColor = [232, 220, 245]; } } });
 
+    // targets (progress right now)
+    const tg = tShown();
+    if (tg.length) table('Targets (progress now)', ['Target', 'Period', 'Done', 'Goal', '%'],
+      tg.map(t => { const g = tProgress(t); return [t.name, `${g.a} to ${g.b}`, t.unit === 'peso' ? money(g.done) : g.done + ' pcs', t.unit === 'peso' ? money(g.goal) : g.goal + ' pcs', g.pct + '%']; }), rcols(2, 3, 4));
+
     // per-day breakdown for weekly
     if (kind === 'week') {
       const rows = [];
