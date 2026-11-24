@@ -658,7 +658,11 @@ function vReports(v) {
   <tr><td><b>= Real profit</b></td><td class="r"><b class="${m.net >= 0 ? 'ok' : 'bad'}">${peso(m.net)}</b></td></tr></table></div>
   ${m.n ? `<div class="card"><b>By product</b><table class="t"><tr><th></th><th class="r">Qty</th><th class="r">Sales</th></tr>${tbl(byP)}</table></div>
   <div class="grid2"><div class="card"><b>By seller</b><table class="t">${tbl(bySeller, 1)}</table></div><div class="card"><b>By payment</b><table class="t">${tbl(byPay, 1)}</table></div></div>` : '<div class="empty">No sales in this period.</div>'}
-  <button class="btn sec block" onclick="shareText(reportText(rp),'Report')">📤 Share this report</button>`;
+  <button class="btn sec block" onclick="shareText(reportText(rp),'Report')">📤 Share this report</button>
+  <div class="card" style="margin-top:12px"><b>📄 PDF report (backup copy)</b><p class="small mut" style="margin:4px 0 10px">Download a PDF of one day or one week (Mon–Sun): summary, every sale, expenses, losses and stock.</p>
+  <div class="seg" id="pdfKind" style="margin-bottom:10px"><button data-k="day" class="on" onclick="this.parentNode.querySelectorAll('button').forEach(b=>b.classList.toggle('on',b===this))">Daily</button><button data-k="week" onclick="this.parentNode.querySelectorAll('button').forEach(b=>b.classList.toggle('on',b===this))">Weekly</button></div>
+  <label class="f">Day (for weekly: any day in that week)<input type="date" id="pdfDay" value="${today()}" max="${today()}"></label>
+  <button class="btn block" onclick="pdfBtn(this)">⬇️ Download PDF</button></div>`;
 }
 function reportText(k) {
   const m = metrics(period(k)), s = metrics(period('season')), byP = {};
@@ -701,7 +705,7 @@ function vSettings(v) {
   <div class="card"><b>Backup & sharing</b><p class="small mut">Data is saved on this phone only. Back up daily and send the file to the team group chat.</p>
   <div class="row"><button class="btn grow" onclick="exportData()">⬇️ Backup file</button><label class="btn sec grow" style="text-align:center">⬆️ Restore<input type="file" accept=".json,application/json" hidden onchange="importData(this.files[0])"></label></div>
   <button class="btn danger block" style="margin-top:10px" onclick="resetAll()">Erase all data on this phone</button></div>
-  <div class="small mut r">Ube POS v2.3</div>`;
+  <div class="small mut r">Ube POS v2.4</div>`;
 }
 window.setP = (id, k, val) => { P(id)[k] = val; save(); };
 window.setPart = (id, i, pid) => { P(id).parts[i].pid = pid; save(); };
